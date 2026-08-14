@@ -1,10 +1,13 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 function Navbar() {
   const navigate = useNavigate();
-
   const { user, logout } = useAuth();
+
+  const [menuOpen, setMenuOpen] =
+    useState(false);
 
   const dashboardPath =
     user?.role === "ngo"
@@ -13,25 +16,35 @@ function Navbar() {
 
   const handleLogout = () => {
     logout();
+    setMenuOpen(false);
     navigate("/login");
   };
 
+  const closeMenu = () => {
+    setMenuOpen(false);
+  };
+
   return (
-    <nav className="border-b border-gray-200 bg-white">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+    <nav className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur">
+      <div className="mx-auto flex min-h-[72px] max-w-7xl items-center justify-between px-4 sm:px-6 md:px-8 lg:px-10">
+
+        {/* LOGO */}
 
         <Link
           to="/"
-          className="text-2xl font-bold text-gray-900"
+          onClick={closeMenu}
+          className="text-xl font-bold tracking-tight text-gray-900 sm:text-2xl"
         >
           HelpGrid
         </Link>
 
-        <div className="flex items-center gap-8">
+        {/* DESKTOP NAV */}
+
+        <div className="hidden items-center gap-6 md:flex">
 
           <Link
             to="/"
-            className="text-sm font-medium text-gray-700 hover:text-black"
+            className="text-sm font-medium text-gray-700 transition hover:text-black"
           >
             Home
           </Link>
@@ -40,18 +53,18 @@ function Navbar() {
             <>
               <Link
                 to={dashboardPath}
-                className="text-sm font-medium text-gray-700 hover:text-black"
+                className="text-sm font-medium text-gray-700 transition hover:text-black"
               >
                 Dashboard
               </Link>
 
-              <span className="text-sm font-medium text-gray-600">
+              <span className="max-w-[150px] truncate text-sm font-medium text-gray-600">
                 {user.name}
               </span>
 
               <button
                 onClick={handleLogout}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:border-black hover:bg-gray-100"
               >
                 Logout
               </button>
@@ -60,14 +73,14 @@ function Navbar() {
             <>
               <Link
                 to="/login"
-                className="text-sm font-medium text-gray-700 hover:text-black"
+                className="text-sm font-medium text-gray-700 transition hover:text-black"
               >
                 Login
               </Link>
 
               <Link
                 to="/signup"
-                className="rounded-lg bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-800"
+                className="rounded-xl bg-black px-5 py-2.5 text-sm font-medium text-white transition hover:bg-gray-800"
               >
                 Join HelpGrid
               </Link>
@@ -75,7 +88,85 @@ function Navbar() {
           )}
 
         </div>
+
+        {/* MOBILE MENU BUTTON */}
+
+        <button
+          type="button"
+          aria-label="Toggle navigation menu"
+          aria-expanded={menuOpen}
+          onClick={() =>
+            setMenuOpen(
+              (previous) => !previous
+            )
+          }
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-xl text-gray-900 transition hover:border-black md:hidden"
+        >
+          {menuOpen ? "✕" : "☰"}
+        </button>
+
       </div>
+
+      {/* MOBILE MENU */}
+
+      {menuOpen && (
+        <div className="border-t border-gray-200 bg-white px-4 py-4 shadow-sm md:hidden">
+
+          <div className="mx-auto flex max-w-7xl flex-col gap-2">
+
+            <Link
+              to="/"
+              onClick={closeMenu}
+              className="rounded-xl px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-gray-100 hover:text-black"
+            >
+              Home
+            </Link>
+
+            {user ? (
+              <>
+                <Link
+                  to={dashboardPath}
+                  onClick={closeMenu}
+                  className="rounded-xl px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-gray-100 hover:text-black"
+                >
+                  Dashboard
+                </Link>
+
+                <div className="rounded-xl bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700">
+                  {user.name}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="rounded-xl border border-gray-300 px-4 py-3 text-left text-sm font-medium text-gray-700 transition hover:border-black hover:bg-gray-100"
+                >
+                  Logout
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  onClick={closeMenu}
+                  className="rounded-xl px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-gray-100 hover:text-black"
+                >
+                  Login
+                </Link>
+
+                <Link
+                  to="/signup"
+                  onClick={closeMenu}
+                  className="rounded-xl bg-black px-4 py-3 text-center text-sm font-medium text-white hover:bg-gray-800"
+                >
+                  Join HelpGrid
+                </Link>
+              </>
+            )}
+
+          </div>
+        </div>
+      )}
     </nav>
   );
 }

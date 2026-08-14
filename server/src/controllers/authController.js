@@ -25,6 +25,7 @@ export const register = async (req, res) => {
   website,
   officialAddress,
   city,
+  area,
 
   contactPersonName,
   contactPersonPhone,

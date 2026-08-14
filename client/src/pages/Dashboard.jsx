@@ -1,13 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
+import { io } from "socket.io-client";
 
 function Dashboard() {
   // =====================================================
   // STATE
   // =====================================================
+  const [showNotifications, setShowNotifications] =
+  useState(false);
 
   const [requests, setRequests] = useState([]);
   const [notifications, setNotifications] =
     useState([]);
+
+  // =====================================================
+  // CHAT STATE
+  // =====================================================
+
+  const [activeChat, setActiveChat] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [messageText, setMessageText] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState("");
 
   const [loading, setLoading] =
     useState(true);
@@ -418,6 +431,243 @@ function Dashboard() {
   };
 
   // =====================================================
+  // CHAT HELPERS
+  // =====================================================
+
+  const getCurrentUserId = () => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) return null;
+
+      const payload = JSON.parse(
+        atob(token.split(".")[1])
+      );
+
+      return payload.id || payload._id || payload.userId || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const getMessageSenderId = (message) => {
+    if (!message?.sender) return null;
+
+    if (typeof message.sender === "object") {
+      return message.sender._id || message.sender.id || null;
+    }
+
+    return message.sender;
+  };
+
+  const isSameMessage = (first, second) => {
+    if (!first || !second) return false;
+
+    if (
+      first._id &&
+      second._id &&
+      first._id.toString() === second._id.toString()
+    ) {
+      return true;
+    }
+
+    if (
+      first.id &&
+      second.id &&
+      first.id.toString() === second.id.toString()
+    ) {
+      return true;
+    }
+
+    return (
+      first.message === second.message &&
+      getMessageSenderId(first)?.toString() ===
+        getMessageSenderId(second)?.toString() &&
+      new Date(first.createdAt || 0).getTime() ===
+        new Date(second.createdAt || 0).getTime()
+    );
+  };
+
+  const openChat = async (request) => {
+    if (!request?._id) return;
+
+    try {
+      setChatLoading(true);
+      setChatError("");
+      setMessages([]);
+      setActiveChat(request);
+
+      const token = localStorage.getItem("token");
+
+      if (!token) {
+        throw new Error("You are not logged in.");
+      }
+
+      const response = await fetch(
+        `http://localhost:5000/api/chat/${request._id}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || "Failed to load chat."
+        );
+      }
+
+      setMessages(data.messages || []);
+
+      const socket = window.helpGridSocket;
+
+      if (socket) {
+        socket.emit("join_chat", {
+          helpRequestId: request._id,
+        });
+      }
+    } catch (error) {
+      console.error("Open chat error:", error);
+      setChatError(error.message);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const closeChat = () => {
+    const socket = window.helpGridSocket;
+
+    if (socket && activeChat?._id) {
+      socket.emit("leave_chat", {
+        helpRequestId: activeChat._id,
+      });
+    }
+
+    setActiveChat(null);
+    setMessages([]);
+    setMessageText("");
+    setChatError("");
+  };
+
+  const sendMessage = () => {
+    const text = messageText.trim();
+
+    if (!text || !activeChat?._id) {
+      return;
+    }
+
+    const socket = window.helpGridSocket;
+
+    if (!socket) {
+      setChatError(
+        "Chat connection is not ready. Please close and reopen the chat."
+      );
+      return;
+    }
+
+    const optimisticMessage = {
+      id: `local-${Date.now()}-${Math.random()}`,
+      sender: getCurrentUserId(),
+      message: text,
+      createdAt: new Date().toISOString(),
+      _optimistic: true,
+    };
+
+    // Show my message immediately.
+    setMessages((previous) => [
+      ...previous,
+      optimisticMessage,
+    ]);
+
+    socket.emit("send_message", {
+      helpRequestId: activeChat._id,
+      message: text,
+    });
+
+    setMessageText("");
+    setChatError("");
+  };
+
+  // =====================================================
+  // CHAT SOCKET
+  // =====================================================
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      return;
+    }
+
+    const socket = io("http://localhost:5000");
+
+    window.helpGridSocket = socket;
+
+    socket.on("connect", () => {
+      socket.emit("authenticate", token);
+    });
+
+    socket.on("receive_message", (message) => {
+      setMessages((previous) => {
+        // Ignore messages for another chat.
+        if (
+          activeChat?._id &&
+          message?.helpRequestId &&
+          message.helpRequestId.toString() !==
+            activeChat._id.toString()
+        ) {
+          return previous;
+        }
+
+        // Server may echo the same message we added optimistically.
+        const optimisticIndex = previous.findIndex(
+          (item) =>
+            item._optimistic &&
+            item.message === message.message &&
+            getMessageSenderId(item)?.toString() ===
+              getMessageSenderId(message)?.toString()
+        );
+
+        if (optimisticIndex !== -1) {
+          const updated = [...previous];
+          updated[optimisticIndex] = {
+            ...message,
+            _optimistic: false,
+          };
+          return updated;
+        }
+
+        if (
+          previous.some((item) =>
+            isSameMessage(item, message)
+          )
+        ) {
+          return previous;
+        }
+
+        return [...previous, message];
+      });
+    });
+
+    socket.on("chat_error", (error) => {
+      console.error("Chat error:", error);
+      setChatError(
+        error?.message || "Unable to send message."
+      );
+    });
+
+    return () => {
+      socket.disconnect();
+
+      if (window.helpGridSocket === socket) {
+        window.helpGridSocket = null;
+      }
+    };
+  }, [activeChat?._id]);
+
+  // =====================================================
   // CANCEL REQUEST
   // =====================================================
 
@@ -675,38 +925,196 @@ function Dashboard() {
             </p>
 
           </div>
-
+         </div>
           {/* STATS */}
 
-          <div className="flex gap-3">
+          {/* HEADER ACTIONS */}
 
-            <div className="min-w-[105px] rounded-2xl border border-gray-200 bg-white px-5 py-4 shadow-[0_5px_0_#e5e5e5]">
+<div className="flex items-center gap-3">
 
-              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                Active
-              </p>
+  {/* NOTIFICATION BELL */}
 
-              <p className="mt-1 text-2xl font-black">
-                {activeRequests}
-              </p>
+  <div className="relative">
 
-            </div>
+    <button
+      type="button"
+      onClick={() =>
+        setShowNotifications(
+          (previous) => !previous
+        )
+      }
+      className="relative flex h-[72px] w-[72px] items-center justify-center rounded-2xl border border-gray-200 bg-white text-2xl shadow-[0_5px_0_#e5e5e5] transition hover:-translate-y-0.5 hover:border-black"
+    >
+      🔔
 
-            <div className="min-w-[105px] rounded-2xl border border-gray-200 bg-black px-5 py-4 text-white shadow-[0_5px_0_#d1d1d1]">
+      {unreadNotifications > 0 && (
+        <span className="absolute -right-1 -top-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-black px-1.5 text-[10px] font-black text-white">
+          {unreadNotifications > 9
+            ? "9+"
+            : unreadNotifications}
+        </span>
+      )}
+       </button>
 
-              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                Completed
-              </p>
+    {/* NOTIFICATION DROPDOWN */}
 
-              <p className="mt-1 text-2xl font-black">
-                {completedRequests}
-              </p>
+    {showNotifications && (
+      <div className="fixed right-5 top-24 z-[9999] w-[350px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-gray-200 bg-white text-gray-950 shadow-[0_15px_40px_rgba(0,0,0,0.15)]">
 
-            </div>
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
 
+          <div>
+            <p className="text-sm font-black">
+              Notifications
+            </p>
+
+            <p className="mt-0.5 text-xs text-gray-400">
+              {unreadNotifications > 0
+                ? `${unreadNotifications} unread`
+                : "You're all caught up"}
+            </p>
           </div>
 
+          <button
+            type="button"
+            onClick={() =>
+              setShowNotifications(false)
+            }
+            className="text-lg text-gray-400 hover:text-black"
+          >
+            ✕
+          </button>
+
         </div>
+
+        <div className="max-h-[400px] overflow-y-auto">
+
+          {notificationLoading ? (
+            <div className="p-8 text-center">
+              <p className="text-sm text-gray-500">
+                Loading notifications...
+              </p>
+            </div>
+          ) : notificationError ? (
+            <div className="p-5">
+              <p className="text-sm font-semibold text-red-600">
+                {notificationError}
+              </p>
+            </div>
+          ) : notifications.length === 0 ? (
+            <div className="p-8 text-center">
+              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gray-100">
+                🔔
+              </div>
+
+              <p className="text-sm font-semibold">
+                No notifications
+              </p>
+
+              <p className="mt-1 text-xs text-gray-400">
+                New updates will appear here.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-100">
+
+              {notifications.map(
+                (notification) => (
+                  <button
+                    key={notification._id}
+                    type="button"
+                    onClick={() => {
+                      if (!notification.read) {
+                        markAsRead(
+                          notification._id
+                        );
+                      }
+                    }}
+                    className={`w-full px-5 py-4 text-left transition hover:bg-gray-50 ${
+                      notification.read
+                        ? "bg-white"
+                        : "bg-gray-50"
+                    }`}
+                  >
+
+                    <div className="flex gap-3">
+
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-black text-sm text-white">
+                        🔔
+                      </div>
+
+                      <div className="min-w-0">
+
+                        <div className="flex items-center gap-2">
+
+                          <p className="text-xs font-black capitalize">
+                            {notification.type.replaceAll(
+                              "_",
+                              " "
+                            )}
+                          </p>
+
+                          {!notification.read && (
+                            <span className="rounded-full bg-black px-2 py-0.5 text-[8px] font-bold uppercase text-white">
+                              New
+                            </span>
+                          )}
+
+                        </div>
+
+                        <p className="mt-1 text-xs leading-5 text-gray-500">
+                          {notification.message}
+                        </p>
+
+                        <p className="mt-1 text-[10px] text-gray-400">
+                          {new Date(
+                            notification.createdAt
+                          ).toLocaleString()}
+                        </p>
+
+                      </div>
+
+                    </div>
+
+                  </button>
+                )
+              )}
+
+            </div>
+          )}
+
+        </div>
+
+      </div>
+    )}
+
+  </div>
+
+  {/* ACTIVE */}
+
+  <div className="min-w-[105px] rounded-2xl border border-gray-200 bg-white px-5 py-4 shadow-[0_5px_0_#e5e5e5]">
+    <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+      Active
+    </p>
+
+    <p className="mt-1 text-2xl font-black">
+      {activeRequests}
+    </p>
+  </div>
+
+  {/* COMPLETED */}
+
+  <div className="min-w-[105px] rounded-2xl border border-gray-200 bg-black px-5 py-4 text-white shadow-[0_5px_0_#d1d1d1]">
+    <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+      Completed
+    </p>
+
+    <p className="mt-1 text-2xl font-black">
+      {completedRequests}
+    </p>
+  </div>
+
+</div>
 
         {/* =================================================
             CREATE REQUEST
@@ -1283,6 +1691,21 @@ function Dashboard() {
                           </div>
                         )}
 
+                        {/* CHAT */}
+
+                        {request.acceptedBy &&
+                          ["accepted", "in_progress"].includes(
+                            request.status
+                          ) && (
+                            <button
+                              type="button"
+                              onClick={() => openChat(request)}
+                              className="mt-5 w-full rounded-xl bg-black px-5 py-3.5 text-sm font-bold text-white shadow-[0_5px_0_#cfcfcf] transition-all hover:-translate-y-0.5 hover:bg-gray-800 active:translate-y-[2px]"
+                            >
+                              💬 Chat with NGO
+                            </button>
+                          )}
+
                         {/* DATE */}
 
                         <p className="mt-5 text-xs text-gray-400">
@@ -1347,139 +1770,138 @@ function Dashboard() {
             NOTIFICATIONS
         ================================================= */}
 
-        <section>
+        
 
-          <div className="mb-6 flex items-end justify-between">
+                   
 
-            <div>
 
-              <p className="mb-1 text-xs font-bold uppercase tracking-[0.2em] text-gray-400">
-                Updates
-              </p>
+        {/* =================================================
+            CHAT MODAL
+        ================================================= */}
 
-              <h2 className="text-2xl font-black tracking-tight">
-                Notifications
-              </h2>
+        {activeChat && (
+          <div className="fixed inset-0 z-[10000] flex items-end justify-end bg-black/20 p-4 sm:p-6">
+            <div className="flex h-[600px] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
 
-            </div>
+              {/* HEADER */}
+              <div className="flex items-center justify-between bg-black px-5 py-4 text-white">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold uppercase tracking-wider text-gray-400">
+                    HelpGrid Chat
+                  </p>
 
-            {unreadNotifications >
-              0 && (
-              <span className="rounded-full bg-black px-3 py-1 text-xs font-bold text-white">
-                {unreadNotifications} unread
-              </span>
-            )}
+                  <h3 className="mt-1 truncate text-lg font-black">
+                    {activeChat.acceptedBy?.name || "NGO"}
+                  </h3>
+                </div>
 
-          </div>
+                <button
+                  type="button"
+                  onClick={closeChat}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white hover:bg-white/20"
+                >
+                  ✕
+                </button>
+              </div>
 
-          {notificationLoading ? (
-
-            <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center">
-              <p className="text-sm text-gray-500">
-                Loading notifications...
-              </p>
-            </div>
-
-          ) : notificationError ? (
-
-            <div className="rounded-3xl border border-gray-200 bg-white p-7">
-              <p className="font-semibold text-red-600">
-                {
-                  notificationError
-                }
-              </p>
-            </div>
-
-          ) : notifications.length ===
-            0 ? (
-
-            <div className="rounded-3xl border border-gray-200 bg-white p-10 text-center">
-              <p className="text-sm text-gray-500">
-                No notifications yet.
-              </p>
-            </div>
-
-          ) : (
-
-            <div className="grid gap-4 lg:grid-cols-2">
-
-              {notifications.map(
-                (notification) => (
-
-                  <button
-                    key={
-                      notification._id
-                    }
-                    type="button"
-                    onClick={() => {
-                      if (
-                        !notification.read
-                      ) {
-                        markAsRead(
-                          notification._id
-                        );
-                      }
-                    }}
-                    className={`w-full rounded-2xl border p-5 text-left transition-all ${
-                      notification.read
-                        ? "border-gray-200 bg-white"
-                        : "border-black bg-gray-50 shadow-[0_5px_0_#d1d1d1]"
-                    }`}
-                  >
-
-                    <div className="flex items-start gap-4">
-
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-black text-white">
-                        🔔
+              {/* MESSAGES */}
+              <div className="flex-1 space-y-3 overflow-y-auto bg-gray-50 p-4">
+                {chatLoading ? (
+                  <div className="flex h-full items-center justify-center">
+                    <p className="text-sm text-gray-500">
+                      Loading chat...
+                    </p>
+                  </div>
+                ) : messages.length === 0 ? (
+                  <div className="flex h-full items-center justify-center text-center">
+                    <div>
+                      <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm">
+                        💬
                       </div>
 
-                      <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-700">
+                        No messages yet
+                      </p>
 
-                        <div className="flex flex-wrap items-center gap-2">
-
-                          <p className="text-sm font-black capitalize">
-                            {
-                              notification.type.replaceAll(
-                                "_",
-                                " "
-                              )
-                            }
-                          </p>
-
-                          {!notification.read && (
-                            <span className="rounded-full bg-black px-2 py-0.5 text-[9px] font-bold uppercase text-white">
-                              New
-                            </span>
-                          )}
-
-                        </div>
-
-                        <p className="mt-1 text-sm leading-6 text-gray-500">
-                          {
-                            notification.message
-                          }
-                        </p>
-
-                        <p className="mt-2 text-[11px] text-gray-400">
-                          {new Date(
-                            notification.createdAt
-                          ).toLocaleString()}
-                        </p>
-
-                      </div>
-
+                      <p className="mt-1 text-xs text-gray-400">
+                        Start the conversation.
+                      </p>
                     </div>
+                  </div>
+                ) : (
+                  messages.map((message) => {
+                    const myId = getCurrentUserId();
+                    const senderId = getMessageSenderId(message);
 
-                  </button>
+                    const isMine =
+                      senderId?.toString() ===
+                      myId?.toString();
 
-                )
+                    return (
+                      <div
+                        key={
+                          message._id ||
+                          message.id ||
+                          `${message.createdAt}-${message.message}`
+                        }
+                        className={`flex ${
+                          isMine
+                            ? "justify-end"
+                            : "justify-start"
+                        }`}
+                      >
+                        <div
+                          className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${
+                            isMine
+                              ? "rounded-br-md bg-black text-white"
+                              : "rounded-bl-md border border-gray-200 bg-white text-gray-800"
+                          }`}
+                        >
+                          {message.message}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* ERROR */}
+              {chatError && (
+                <div className="border-t border-red-100 bg-red-50 px-4 py-2">
+                  <p className="text-xs font-semibold text-red-600">
+                    {chatError}
+                  </p>
+                </div>
               )}
 
+              {/* INPUT */}
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  sendMessage();
+                }}
+                className="flex gap-2 border-t border-gray-200 bg-white p-4"
+              >
+                <input
+                  value={messageText}
+                  onChange={(event) =>
+                    setMessageText(event.target.value)
+                  }
+                  placeholder="Type a message..."
+                  className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none focus:border-black"
+                />
+
+                <button
+                  type="submit"
+                  disabled={!messageText.trim()}
+                  className="rounded-xl bg-black px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Send
+                </button>
+              </form>
             </div>
-
-          )}
-
-        </section>
+          </div>
+        )}
 
       </main>
 

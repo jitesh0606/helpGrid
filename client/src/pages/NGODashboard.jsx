@@ -1,12 +1,47 @@
 import { useEffect, useState } from "react";
+import { io } from "socket.io-client";
 
 function NGODashboard() {
   const [requests, setRequests] = useState([]);
   const [assignedRequests, setAssignedRequests] = useState([]);
 
+  // =====================================================
+// FIND NEARBY NGOs
+// =====================================================
+
+const [nearbyNGOs, setNearbyNGOs] =
+  useState([]);
+
+const [nearbyLoading, setNearbyLoading] =
+  useState(false);
+
+const [nearbyError, setNearbyError] =
+  useState("");
+
+const [nearbyRadius, setNearbyRadius] =
+  useState(10);
+
+const [showNearbyNGOs, setShowNearbyNGOs] =
+  useState(false);
+
   const [loading, setLoading] = useState(true);
   const [assignedLoading, setAssignedLoading] =
     useState(true);
+ 
+  const [activeChat, setActiveChat] =
+  useState(null);
+
+const [messages, setMessages] =
+  useState([]);
+
+const [messageText, setMessageText] =
+  useState("");
+
+const [chatLoading, setChatLoading] =
+  useState(false);
+
+const [chatError, setChatError] =
+  useState("");
 
   const [error, setError] = useState("");
   const [assignedError, setAssignedError] =
@@ -120,6 +155,64 @@ function NGODashboard() {
         setAssignedLoading(false);
       }
     };
+
+  // =====================================================
+  // FIND NEARBY VERIFIED NGOs
+  // =====================================================
+
+  const fetchNearbyNGOs = async () => {
+    try {
+      setNearbyLoading(true);
+      setNearbyError("");
+      setShowNearbyNGOs(true);
+
+      const token =
+        localStorage.getItem("token");
+
+      if (!token) {
+        throw new Error(
+          "You are not logged in."
+        );
+      }
+
+      const response = await fetch(
+        `http://localhost:5000/api/ngos/nearby?radius=${nearbyRadius}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Failed to find nearby NGOs."
+        );
+      }
+
+      setNearbyNGOs(
+        data.ngos || []
+      );
+    } catch (error) {
+      console.error(
+        "Nearby NGOs error:",
+        error
+      );
+
+      setNearbyError(
+        error.message
+      );
+
+      setNearbyNGOs([]);
+    } finally {
+      setNearbyLoading(false);
+    }
+  };
 
   // =====================================================
   // ACCEPT REQUEST
@@ -366,6 +459,204 @@ function NGODashboard() {
     }
   };
 
+const openChat = async (request) => {
+  try {
+    setChatLoading(true);
+    setChatError("");
+    setMessages([]);
+    setActiveChat(request);
+
+    const token =
+      localStorage.getItem("token");
+
+    // =========================
+    // LOAD CHAT HISTORY
+    // =========================
+
+    const response = await fetch(
+      `http://localhost:5000/api/chat/${request._id}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    const data =
+      await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.message ||
+          "Failed to load chat."
+      );
+    }
+
+    setMessages(
+      data.messages || []
+    );
+    const socket =
+  window.helpGridSocket;
+
+if (socket) {
+  socket.emit(
+    "join_chat",
+    {
+      helpRequestId:
+        request._id,
+    }
+  );
+}
+  } catch (error) {
+    console.error(
+      "Open chat error:",
+      error
+    );
+
+    setChatError(
+      error.message
+    );
+  } finally {
+    setChatLoading(false);
+  }
+};
+
+const getCurrentUserId = () => {
+  try {
+    const token = localStorage.getItem("token");
+    if (!token) return null;
+
+    const payload = JSON.parse(
+      atob(token.split(".")[1])
+    );
+
+    return payload.id || payload._id || payload.userId || null;
+  } catch (error) {
+    console.error("Token decode error:", error);
+    return null;
+  }
+};
+
+const getSenderId = (message) => {
+  if (!message?.sender) return null;
+
+  if (typeof message.sender === "string") {
+    return message.sender;
+  }
+
+  return (
+    message.sender._id ||
+    message.sender.id ||
+    message.sender.userId ||
+    null
+  );
+};
+
+const sendMessage = () => {
+  const text = messageText.trim();
+
+  if (!text || !activeChat) {
+    return;
+  }
+
+  const socket = window.helpGridSocket;
+
+  if (!socket || !socket.connected) {
+    setChatError("Chat connection is not ready. Please try again.");
+    return;
+  }
+
+  const currentUserId = getCurrentUserId();
+
+  // Show our own message immediately.
+  // The server/socket may only broadcast the message to the other user.
+  const optimisticMessage = {
+    _id: `local-${Date.now()}-${Math.random()}`,
+    sender: currentUserId,
+    message: text,
+    createdAt: new Date().toISOString(),
+    optimistic: true,
+  };
+
+  setMessages((previous) => [
+    ...previous,
+    optimisticMessage,
+  ]);
+
+  socket.emit("send_message", {
+    helpRequestId: activeChat._id,
+    message: text,
+  });
+
+  setMessageText("");
+};
+
+useEffect(() => {
+  const token =
+    localStorage.getItem("token");
+
+  if (!token) {
+    return;
+  }
+
+  const socket =
+    io("http://localhost:5000");
+
+  window.helpGridSocket = socket;
+
+  socket.on(
+    "connect",
+    () => {
+      socket.emit(
+        "authenticate",
+        token
+      );
+    }
+  );
+
+  socket.on(
+    "receive_message",
+    (message) => {
+      const currentUserId = getCurrentUserId();
+      const senderId = getSenderId(message);
+
+      // We already add our own message optimistically above.
+      // Do not add the same outgoing message twice if the server echoes it.
+      if (
+        currentUserId &&
+        senderId &&
+        String(currentUserId) === String(senderId)
+      ) {
+        return;
+      }
+
+      setMessages((previous) => [
+        ...previous,
+        message,
+      ]);
+    }
+  );
+
+  socket.on(
+    "chat_error",
+    (error) => {
+      console.error(
+        "Chat error:",
+        error.message
+      );
+
+      setChatError(
+        error.message
+      );
+    }
+  );
+
+  return () => {
+    socket.disconnect();
+    window.helpGridSocket = null;
+  };
+}, []);
+
   // =====================================================
   // INITIAL LOAD + AUTO REFRESH
   // =====================================================
@@ -538,7 +829,7 @@ function NGODashboard() {
             </p>
 
           </div>
-
+          
           {/* Stats */}
 
           <div className="flex gap-3">
@@ -570,6 +861,191 @@ function NGODashboard() {
           </div>
 
         </div>
+
+        {/* =================================================
+            FIND NEARBY NGOs
+        ================================================= */}
+
+        <section className="mb-14">
+          <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-[0_8px_0_#e5e5e5] sm:p-7">
+
+            <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+
+              <div>
+                <p className="mb-1 text-xs font-bold uppercase tracking-[0.2em] text-gray-400">
+                  Local Network
+                </p>
+
+                <h2 className="text-2xl font-black tracking-tight">
+                  Find NGOs Near You
+                </h2>
+
+                <p className="mt-1 max-w-xl text-sm text-gray-500">
+                  Discover verified and currently available NGOs around your location.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+
+                <select
+                  value={nearbyRadius}
+                  onChange={(event) =>
+                    setNearbyRadius(
+                      Number(event.target.value)
+                            )
+                  }
+                  className="rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-semibold outline-none focus:border-black"
+                >
+                  <option value={5}>5 km</option>
+                  <option value={10}>10 km</option>
+                  <option value={20}>20 km</option>
+                  <option value={50}>50 km</option>
+                </select>
+
+                <button
+                  type="button"
+                  onClick={fetchNearbyNGOs}
+                  disabled={nearbyLoading}
+                  className="rounded-xl bg-black px-5 py-3.5 text-sm font-bold text-white shadow-[0_5px_0_#cfcfcf] transition-all hover:-translate-y-0.5 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {nearbyLoading
+                    ? "Finding..."
+                    : "📍 Find Nearby NGOs"}
+                </button>
+
+              </div>
+            </div>
+
+            {showNearbyNGOs && (
+              <div className="mt-7 border-t border-gray-100 pt-6">
+
+                {nearbyError ? (
+                  <div className="rounded-2xl border border-red-200 bg-red-50 p-5">
+                    <p className="text-sm font-semibold text-red-600">
+                      {nearbyError}
+                    </p>
+                  </div>
+                ) : nearbyLoading ? (
+                  <div className="rounded-2xl border border-gray-200 bg-gray-50 p-10 text-center">
+                    <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-black" />
+                    <p className="text-sm text-gray-500">
+                      Finding verified NGOs nearby...
+                    </p>
+                  </div>
+                ) : nearbyNGOs.length === 0 ? (
+                  <div className="rounded-2xl border border-gray-200 bg-gray-50 p-10 text-center">
+                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-2xl shadow-sm">
+                      📍
+                    </div>
+
+                    <h3 className="font-bold">
+                      No nearby NGOs found
+                    </h3>
+
+                    <p className="mx-auto mt-2 max-w-md text-sm text-gray-500">
+                      Try increasing the search radius or check again later.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-gray-600">
+                        {nearbyNGOs.length} verified NGO
+                        {nearbyNGOs.length !== 1
+                          ? "s"
+                          : ""}{" "}
+                        found
+                      </p>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setShowNearbyNGOs(false)
+                        }
+                        className="text-xs font-bold text-gray-400 hover:text-black"
+                      >
+                        Hide
+                      </button>
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      {nearbyNGOs.map((ngo) => (
+                        <div
+                          key={ngo.id}
+                          className="rounded-2xl border border-gray-200 bg-white p-5 transition hover:border-black"
+                        >
+                          <div className="flex items-start justify-between gap-4">
+
+                            <div>
+                              <h3 className="text-lg font-black">
+                                {ngo.name}
+                              </h3>
+
+                              <p className="mt-1 text-xs text-gray-400">
+                                {ngo.city ||
+                                  ngo.officialAddress ||
+                                  "Location available"}
+                              </p>
+                            </div>
+
+                            <span className="shrink-0 rounded-full border border-gray-300 bg-gray-50 px-3 py-1 text-[10px] font-bold uppercase text-gray-600">
+                              🟢 Available
+                            </span>
+
+                          </div>
+
+                          <div className="mt-4 inline-flex rounded-xl bg-black px-3 py-2 text-xs font-bold text-white">
+                            📍 {ngo.distanceKm} km away
+                          </div>
+
+                          {ngo.description && (
+                            <p className="mt-4 line-clamp-2 text-sm leading-6 text-gray-500">
+                              {ngo.description}
+                            </p>
+                          )}
+
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {(ngo.categories || []).map(
+                              (category) => (
+                                <span
+                                  key={category}
+                                  className="rounded-full bg-gray-100 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-600"
+                                >
+                                  {category}
+                                </span>
+                              )
+                            )}
+                          </div>
+
+                          <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                            {ngo.phone && (
+                              <a
+                                href={`tel:${ngo.phone}`}
+                                className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-xs font-bold text-gray-700 hover:border-black"
+                              >
+                                📞 Call NGO
+                              </a>
+                            )}
+
+                            {ngo.email && (
+                              <a
+                                href={`mailto:${ngo.email}`}
+                                className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-xs font-bold text-gray-700 hover:border-black"
+                              >
+                                ✉️ Email NGO
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+          </div>
+        </section>
 
         {/* =================================================
             ACTIVE OFFERS
@@ -1035,22 +1511,32 @@ function NGODashboard() {
 
                       {/* START */}
 
-                      {request.status ===
-                        "accepted" && (
+                      {request.status === "accepted" && (
+  <div className="mt-6 space-y-3">
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            startRequest(
-                              request._id
-                            )
-                          }
-                          className="mt-6 w-full rounded-xl bg-black px-5 py-3.5 text-sm font-bold text-white shadow-[0_5px_0_#cfcfcf] transition-all duration-200 hover:-translate-y-0.5 hover:bg-gray-800 hover:shadow-[0_7px_0_#bdbdbd] active:translate-y-[3px] active:shadow-[0_2px_0_#bdbdbd]"
-                        >
-                          Start Request →
-                        </button>
+    <button
+      onClick={() =>
+        openChat(request)
+      }
+      className="w-full rounded-xl border border-gray-300 bg-white px-5 py-3.5 text-sm font-bold text-gray-900 shadow-[0_4px_0_#e5e5e5] transition-all hover:-translate-y-0.5 hover:border-black"
+    >
+      💬 Chat with User
+    </button>
 
-                      )}
+    <button
+      onClick={() =>
+        startRequest(
+          request._id
+        )
+      }
+      className="w-full rounded-xl bg-black px-5 py-3.5 text-sm font-bold text-white shadow-[0_5px_0_#cfcfcf] transition-all duration-200 hover:-translate-y-0.5 hover:bg-gray-800"
+    >
+      Start Request →
+    </button>
+
+  </div>
+)}
+                          
 
                       {/* IN PROGRESS */}
 
@@ -1068,6 +1554,16 @@ function NGODashboard() {
                             </p>
 
                           </div>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openChat(request)
+                            }
+                            className="mb-3 w-full rounded-xl border border-gray-300 bg-white px-5 py-3.5 text-sm font-bold text-gray-900 shadow-[0_4px_0_#e5e5e5] transition-all hover:-translate-y-0.5 hover:border-black"
+                          >
+                            💬 Chat with User
+                          </button>
 
                           <button
                             type="button"
@@ -1108,7 +1604,163 @@ function NGODashboard() {
           )}
 
         </section>
+      {activeChat && (
+  <div className="fixed inset-0 z-[100] flex items-end justify-end bg-black/20 p-4 sm:p-6">
 
+    <div className="flex h-[600px] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-[0_20px_60px_rgba(0,0,0,0.2)]">
+
+      {/* HEADER */}
+
+      <div className="flex items-center justify-between bg-black px-5 py-4 text-white">
+
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wider text-gray-400">
+            HelpGrid Chat
+          </p>
+
+          <h3 className="mt-1 text-lg font-black">
+            {activeChat.requester?.name ||
+              "User"}
+          </h3>
+        </div>
+
+        <button
+          onClick={() => {
+            const socket =
+              window.helpGridSocket;
+
+            if (socket) {
+              socket.emit(
+                "leave_chat",
+                {
+                  helpRequestId:
+                    activeChat._id,
+                }
+              );
+            }
+
+            setActiveChat(null);
+            setMessages([]);
+            setMessageText("");
+            setChatError("");
+          }}
+          className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white hover:bg-white/20"
+        >
+          ✕
+        </button>
+
+      </div>
+
+      {/* MESSAGES */}
+
+      <div className="flex-1 space-y-3 overflow-y-auto bg-gray-50 p-4">
+
+        {chatLoading ? (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-sm text-gray-500">
+              Loading chat...
+            </p>
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-center">
+            <div>
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm">
+                💬
+              </div>
+
+              <p className="text-sm font-semibold text-gray-700">
+                No messages yet
+              </p>
+
+              <p className="mt-1 text-xs text-gray-400">
+                Start the conversation.
+              </p>
+            </div>
+          </div>
+        ) : (
+          messages.map(
+            (message) => {
+              const myId = getCurrentUserId();
+              const senderId = getSenderId(message);
+
+              const isMine =
+                senderId &&
+                myId &&
+                String(senderId) === String(myId);
+
+              return (
+                <div
+                  key={message.id || message._id}
+                  className={`flex ${
+                    isMine
+                      ? "justify-end"
+                      : "justify-start"
+                  }`}
+                >
+                  <div
+                    className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${
+                      isMine
+                        ? "rounded-br-md bg-black text-white"
+                        : "rounded-bl-md border border-gray-200 bg-white text-gray-800"
+                    }`}
+                  >
+                    {message.message}
+                  </div>
+                </div>
+              );
+            }
+          )
+        )}
+
+      </div>
+
+      {/* ERROR */}
+
+      {chatError && (
+        <div className="border-t border-red-100 bg-red-50 px-4 py-2">
+          <p className="text-xs font-semibold text-red-600">
+            {chatError}
+          </p>
+        </div>
+      )}
+
+      {/* INPUT */}
+
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          sendMessage();
+        }}
+        className="flex gap-2 border-t border-gray-200 bg-white p-4"
+      >
+
+        <input
+          value={messageText}
+          onChange={(event) =>
+            setMessageText(
+              event.target.value
+            )
+          }
+          placeholder="Type a message..."
+          className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none focus:border-black"
+        />
+
+        <button
+          type="submit"
+          disabled={
+            !messageText.trim()
+          }
+          className="rounded-xl bg-black px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Send
+        </button>
+
+      </form>
+
+    </div>
+
+  </div>
+)}
       </main>
 
     </div>

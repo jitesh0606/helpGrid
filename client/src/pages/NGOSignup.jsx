@@ -14,6 +14,7 @@ function NGOSignup() {
   website: "",
   address: "",
   city: "",
+  Area: "",
   description: "",
   contactPersonName: "",
   contactPersonPhone: "",

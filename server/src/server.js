@@ -1,6 +1,10 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import http from "http";
+import { Server } from "socket.io";
+import chatRoutes from "./routes/chatRoutes.js";
+import ngoRoutes from "./routes/ngoRoutes.js";
 import connectDB from "./config/db.js";
 
 import authRoutes from "./routes/authRoutes.js";
@@ -16,12 +20,43 @@ dotenv.config();
 
 const app = express();
 
+// =====================================================
+// HTTP SERVER
+// =====================================================
+
+const server = http.createServer(app);
+
+// =====================================================
+// SOCKET.IO
+// =====================================================
+
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"],
+  },
+});
+
+// =====================================================
+// MIDDLEWARE
+// =====================================================
+
 app.use(cors());
 app.use(express.json());
 
-// =========================
+// =====================================================
 // ROUTES
-// =========================
+// =====================================================
+
+app.use(
+  "/api/ngos",
+  ngoRoutes
+);
+
+app.use(
+  "/api/chat",
+  chatRoutes
+);
 
 app.use(
   "/api/auth",
@@ -43,9 +78,9 @@ app.use(
   adminRoutes
 );
 
-// =========================
+// =====================================================
 // HEALTH CHECK
-// =========================
+// =====================================================
 
 app.get(
   "/api/health",
@@ -58,9 +93,25 @@ app.get(
   }
 );
 
-// =========================
+// =====================================================
+// SOCKET CONNECTION
+// =====================================================
+
+io.on("connection", (socket) => {
+  console.log(
+    `Socket connected: ${socket.id}`
+  );
+
+  socket.on("disconnect", () => {
+    console.log(
+      `Socket disconnected: ${socket.id}`
+    );
+  });
+});
+
+// =====================================================
 // START SERVER
-// =========================
+// =====================================================
 
 const PORT =
   process.env.PORT || 5000;
@@ -70,9 +121,13 @@ const startServer = async () => {
 
   startRequestDispatcher();
 
-  app.listen(PORT, () => {
+  server.listen(PORT, () => {
     console.log(
       `HelpGrid server running on port ${PORT}`
+    );
+
+    console.log(
+      "Socket.io server ready 🚀"
     );
   });
 };
