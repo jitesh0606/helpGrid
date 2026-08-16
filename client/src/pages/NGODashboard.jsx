@@ -1,465 +1,441 @@
 import { useEffect, useState } from "react";
 import { io } from "socket.io-client";
 
+const API_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 function NGODashboard() {
   const [requests, setRequests] = useState([]);
   const [assignedRequests, setAssignedRequests] = useState([]);
 
-  // =====================================================
-// FIND NEARBY NGOs
-// =====================================================
-
-const [nearbyNGOs, setNearbyNGOs] =
-  useState([]);
-
-const [nearbyLoading, setNearbyLoading] =
-  useState(false);
-
-const [nearbyError, setNearbyError] =
-  useState("");
-
-const [nearbyRadius, setNearbyRadius] =
-  useState(10);
-
-const [showNearbyNGOs, setShowNearbyNGOs] =
-  useState(false);
+  const [nearbyNGOs, setNearbyNGOs] = useState([]);
+  const [nearbyLoading, setNearbyLoading] = useState(false);
+  const [nearbyError, setNearbyError] = useState("");
+  const [nearbyRadius, setNearbyRadius] = useState(10);
+  const [showNearbyNGOs, setShowNearbyNGOs] = useState(false);
 
   const [loading, setLoading] = useState(true);
-  const [assignedLoading, setAssignedLoading] =
-    useState(true);
- 
-  const [activeChat, setActiveChat] =
-  useState(null);
+  const [assignedLoading, setAssignedLoading] = useState(true);
 
-const [messages, setMessages] =
-  useState([]);
-
-const [messageText, setMessageText] =
-  useState("");
-
-const [chatLoading, setChatLoading] =
-  useState(false);
-
-const [chatError, setChatError] =
-  useState("");
+  const [activeChat, setActiveChat] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [messageText, setMessageText] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState("");
 
   const [error, setError] = useState("");
-  const [assignedError, setAssignedError] =
-    useState("");
+  const [assignedError, setAssignedError] = useState("");
 
-  // =====================================================
-  // FETCH NEARBY ACTIVE OFFERS
-  // =====================================================
+// =====================================================
+// FETCH NEARBY ACTIVE OFFERS
+// =====================================================
 
-  const fetchNearbyRequests = async () => {
-    try {
-      const token =
-        localStorage.getItem("token");
+const fetchNearbyRequests = async () => {
+  try {
+    const token = localStorage.getItem("token");
 
-      if (!token) {
-        setError("You are not logged in.");
-        setLoading(false);
-        return;
-      }
-
-      const response = await fetch(
-        "http://localhost:5000/api/requests/nearby",
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.message ||
-            "Failed to fetch nearby requests."
-        );
-      }
-
-      setRequests(
-        data.requests || []
-      );
-
-      setError("");
-    } catch (error) {
-      console.error(
-        "Nearby requests error:",
-        error
-      );
-
-      setError(error.message);
-    } finally {
+    if (!token) {
+      setError("You are not logged in.");
       setLoading(false);
+      return;
     }
-  };
 
-  // =====================================================
-  // FETCH ASSIGNED REQUESTS
-  // =====================================================
-
-  const fetchAssignedRequests =
-    async () => {
-      try {
-        const token =
-          localStorage.getItem("token");
-
-        if (!token) {
-          setAssignedError(
-            "You are not logged in."
-          );
-          setAssignedLoading(false);
-          return;
-        }
-
-        const response =
-          await fetch(
-            "http://localhost:5000/api/requests/assigned",
-            {
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            }
-          );
-
-        const data =
-          await response.json();
-
-        if (!response.ok) {
-          throw new Error(
-            data.message ||
-              "Failed to fetch assigned requests."
-          );
-        }
-
-        setAssignedRequests(
-          data.requests || []
-        );
-
-        setAssignedError("");
-      } catch (error) {
-        console.error(
-          "Assigned requests error:",
-          error
-        );
-
-        setAssignedError(
-          error.message
-        );
-      } finally {
-        setAssignedLoading(false);
+    const response = await fetch(
+      `${API_URL}/api/requests/nearby`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       }
-    };
+    );
 
-  // =====================================================
-  // FIND NEARBY VERIFIED NGOs
-  // =====================================================
+    const data = await response.json();
 
-  const fetchNearbyNGOs = async () => {
-    try {
-      setNearbyLoading(true);
-      setNearbyError("");
-      setShowNearbyNGOs(true);
+    if (!response.ok) {
+      throw new Error(
+        data.message ||
+          "Failed to fetch nearby requests."
+      );
+    }
 
-      const token =
-        localStorage.getItem("token");
+    setRequests(data.requests || []);
+    setError("");
+  } catch (error) {
+    console.error(
+      "Nearby requests error:",
+      error
+    );
 
-      if (!token) {
-        throw new Error(
-          "You are not logged in."
-        );
+    setError(error.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
+// =====================================================
+// FETCH ASSIGNED REQUESTS
+// =====================================================
+
+const fetchAssignedRequests = async () => {
+  try {
+    const token =
+      localStorage.getItem("token");
+
+    if (!token) {
+      setAssignedError(
+        "You are not logged in."
+      );
+
+      setAssignedLoading(false);
+      return;
+    }
+
+    const response = await fetch(
+      `${API_URL}/api/requests/assigned`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       }
+    );
 
-      const response = await fetch(
-        `http://localhost:5000/api/ngos/nearby?radius=${nearbyRadius}`,
+    const data =
+      await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.message ||
+          "Failed to fetch assigned requests."
+      );
+    }
+
+    setAssignedRequests(
+      data.requests || []
+    );
+
+    setAssignedError("");
+  } catch (error) {
+    console.error(
+      "Assigned requests error:",
+      error
+    );
+
+    setAssignedError(
+      error.message
+    );
+  } finally {
+    setAssignedLoading(false);
+  }
+};
+
+// =====================================================
+// FIND NEARBY VERIFIED NGOs
+// =====================================================
+
+const fetchNearbyNGOs = async () => {
+  try {
+    setNearbyLoading(true);
+    setNearbyError("");
+    setShowNearbyNGOs(true);
+
+    const token =
+      localStorage.getItem("token");
+
+    if (!token) {
+      throw new Error(
+        "You are not logged in."
+      );
+    }
+
+    const response = await fetch(
+      `${API_URL}/api/ngos/nearby?radius=${nearbyRadius}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    const data =
+      await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.message ||
+          "Failed to find nearby NGOs."
+      );
+    }
+
+    setNearbyNGOs(
+      data.ngos || []
+    );
+  } catch (error) {
+    console.error(
+      "Nearby NGOs error:",
+      error
+    );
+
+    setNearbyError(
+      error.message
+    );
+
+    setNearbyNGOs([]);
+  } finally {
+    setNearbyLoading(false);
+  }
+};
+
+// =====================================================
+// ACCEPT REQUEST
+// =====================================================
+
+const acceptRequest = async (
+  requestId
+) => {
+  try {
+    const token =
+      localStorage.getItem("token");
+
+    const response =
+      await fetch(
+        `${API_URL}/api/requests/${requestId}/accept`,
         {
-          method: "GET",
+          method: "PATCH",
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization:
+              `Bearer ${token}`,
           },
         }
       );
 
-      const data =
-        await response.json();
+    const data =
+      await response.json();
 
-      if (!response.ok) {
-        throw new Error(
-          data.message ||
-            "Failed to find nearby NGOs."
-        );
-      }
-
-      setNearbyNGOs(
-        data.ngos || []
+    if (!response.ok) {
+      throw new Error(
+        data.message ||
+          "Failed to accept request."
       );
-    } catch (error) {
-      console.error(
-        "Nearby NGOs error:",
-        error
-      );
-
-      setNearbyError(
-        error.message
-      );
-
-      setNearbyNGOs([]);
-    } finally {
-      setNearbyLoading(false);
     }
-  };
 
-  // =====================================================
-  // ACCEPT REQUEST
-  // =====================================================
+    setRequests(
+      (prevRequests) =>
+        prevRequests.filter(
+          (request) =>
+            request._id !==
+            requestId
+        )
+    );
 
-  const acceptRequest = async (
-    requestId
-  ) => {
-    try {
-      const token =
-        localStorage.getItem("token");
+    await fetchAssignedRequests();
 
-      const response =
-        await fetch(
-          `http://localhost:5000/api/requests/${requestId}/accept`,
-          {
-            method: "PATCH",
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
+    alert(
+      "Help request accepted successfully."
+    );
+  } catch (error) {
+    console.error(
+      "Accept request error:",
+      error
+    );
 
-      const data =
-        await response.json();
+    alert(error.message);
 
-      if (!response.ok) {
-        throw new Error(
-          data.message ||
-            "Failed to accept request."
-        );
-      }
+    await fetchNearbyRequests();
+  }
+};
 
-      // Remove from active offers
-      setRequests(
-        (prevRequests) =>
-          prevRequests.filter(
-            (request) =>
-              request._id !==
-              requestId
-          )
+// =====================================================
+// REJECT REQUEST
+// =====================================================
+
+const rejectRequest = async (
+  requestId
+) => {
+  try {
+    const token =
+      localStorage.getItem("token");
+
+    const response =
+      await fetch(
+        `${API_URL}/api/requests/${requestId}/reject`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization:
+              `Bearer ${token}`,
+          },
+        }
       );
 
-      await fetchAssignedRequests();
+    const data =
+      await response.json();
 
-      alert(
-        "Help request accepted successfully."
+    if (!response.ok) {
+      throw new Error(
+        data.message ||
+          "Failed to reject request."
       );
-    } catch (error) {
-      console.error(
-        "Accept request error:",
-        error
-      );
-
-      alert(error.message);
-
-      // Refresh because offer may
-      // have expired already.
-      await fetchNearbyRequests();
     }
-  };
 
-  // =====================================================
-  // REJECT REQUEST
-  // =====================================================
+    setRequests(
+      (prevRequests) =>
+        prevRequests.filter(
+          (request) =>
+            request._id !==
+            requestId
+        )
+    );
 
-  const rejectRequest = async (
-    requestId
-  ) => {
-    try {
-      const token =
-        localStorage.getItem("token");
+    await fetchNearbyRequests();
+  } catch (error) {
+    console.error(
+      "Reject request error:",
+      error
+    );
 
-      const response =
-        await fetch(
-          `http://localhost:5000/api/requests/${requestId}/reject`,
-          {
-            method: "PATCH",
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
+    alert(error.message);
 
-      const data =
-        await response.json();
+    await fetchNearbyRequests();
+  }
+};
 
-      if (!response.ok) {
-        throw new Error(
-          data.message ||
-            "Failed to reject request."
-        );
-      }
+// =====================================================
+// START REQUEST
+// =====================================================
 
-      // Remove current request immediately.
-      setRequests(
-        (prevRequests) =>
-          prevRequests.filter(
-            (request) =>
-              request._id !==
-              requestId
-          )
+const startRequest = async (
+  requestId
+) => {
+  try {
+    const token =
+      localStorage.getItem("token");
+
+    const response =
+      await fetch(
+        `${API_URL}/api/requests/${requestId}/start`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization:
+              `Bearer ${token}`,
+          },
+        }
       );
 
-      // If another request is
-      // dispatched to this NGO,
-      // it will appear on refresh.
-      await fetchNearbyRequests();
-    } catch (error) {
-      console.error(
-        "Reject request error:",
-        error
+    const data =
+      await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.message ||
+          "Failed to start request."
       );
-
-      alert(error.message);
-
-      await fetchNearbyRequests();
     }
-  };
 
-  // =====================================================
-  // START REQUEST
-  // =====================================================
+    setAssignedRequests(
+      (prevRequests) =>
+        prevRequests.map(
+          (request) =>
+            request._id ===
+            requestId
+              ? {
+                  ...request,
+                  status:
+                    "in_progress",
+                  startedAt:
+                    data.request
+                      ?.startedAt,
+                }
+              : request
+        )
+    );
 
-  const startRequest = async (
-    requestId
-  ) => {
-    try {
-      const token =
-        localStorage.getItem("token");
+    alert(
+      "Help request is now in progress."
+    );
+  } catch (error) {
+    console.error(
+      "Start request error:",
+      error
+    );
 
-      const response =
-        await fetch(
-          `http://localhost:5000/api/requests/${requestId}/start`,
-          {
-            method: "PATCH",
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
+    alert(error.message);
+  }
+};
 
-      const data =
-        await response.json();
+// =====================================================
+// COMPLETE REQUEST
+// =====================================================
 
-      if (!response.ok) {
-        throw new Error(
-          data.message ||
-            "Failed to start request."
-        );
-      }
+const completeRequest = async (
+  requestId
+) => {
+  try {
+    const token =
+      localStorage.getItem("token");
 
-      setAssignedRequests(
-        (prevRequests) =>
-          prevRequests.map(
-            (request) =>
-              request._id ===
-              requestId
-                ? {
-                    ...request,
-                    status:
-                      "in_progress",
-                    startedAt:
-                      data.request
-                        ?.startedAt,
-                  }
-                : request
-          )
+    const response =
+      await fetch(
+        `${API_URL}/api/requests/${requestId}/complete`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization:
+              `Bearer ${token}`,
+          },
+        }
       );
 
-      alert(
-        "Help request is now in progress."
-      );
-    } catch (error) {
-      console.error(
-        "Start request error:",
-        error
-      );
+    const data =
+      await response.json();
 
-      alert(error.message);
+    if (!response.ok) {
+      throw new Error(
+        data.message ||
+          "Failed to complete request."
+      );
     }
-  };
 
-  // =====================================================
-  // COMPLETE REQUEST
-  // =====================================================
+    setAssignedRequests(
+      (prevRequests) =>
+        prevRequests.map(
+          (request) =>
+            request._id ===
+            requestId
+              ? {
+                  ...request,
+                  status:
+                    "completed",
+                  completedAt:
+                    data.request
+                      ?.completedAt,
+                }
+              : request
+        )
+    );
 
-  const completeRequest = async (
-    requestId
-  ) => {
-    try {
-      const token =
-        localStorage.getItem("token");
+    alert(
+      "Help request completed successfully."
+    );
+  } catch (error) {
+    console.error(
+      "Complete request error:",
+      error
+    );
 
-      const response =
-        await fetch(
-          `http://localhost:5000/api/requests/${requestId}/complete`,
-          {
-            method: "PATCH",
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
+    alert(error.message);
+  }
+};
 
-      const data =
-        await response.json();
+// =====================================================
+// OPEN CHAT
+// =====================================================
 
-      if (!response.ok) {
-        throw new Error(
-          data.message ||
-            "Failed to complete request."
-        );
-      }
-
-      setAssignedRequests(
-        (prevRequests) =>
-          prevRequests.map(
-            (request) =>
-              request._id ===
-              requestId
-                ? {
-                    ...request,
-                    status:
-                      "completed",
-                    completedAt:
-                      data.request
-                        ?.completedAt,
-                  }
-                : request
-          )
-      );
-
-      alert(
-        "Help request completed successfully."
-      );
-    } catch (error) {
-      console.error(
-        "Complete request error:",
-        error
-      );
-
-      alert(error.message);
-    }
-  };
-
-const openChat = async (request) => {
+const openChat = async (
+  request
+) => {
   try {
     setChatLoading(true);
     setChatError("");
@@ -473,14 +449,16 @@ const openChat = async (request) => {
     // LOAD CHAT HISTORY
     // =========================
 
-    const response = await fetch(
-      `http://localhost:5000/api/chat/${request._id}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
-    );
+    const response =
+      await fetch(
+        `${API_URL}/api/chat/${request._id}`,
+        {
+          headers: {
+            Authorization:
+              `Bearer ${token}`,
+          },
+        }
+      );
 
     const data =
       await response.json();
@@ -495,18 +473,19 @@ const openChat = async (request) => {
     setMessages(
       data.messages || []
     );
-    const socket =
-  window.helpGridSocket;
 
-if (socket) {
-  socket.emit(
-    "join_chat",
-    {
-      helpRequestId:
-        request._id,
+    const socket =
+      window.helpGridSocket;
+
+    if (socket) {
+      socket.emit(
+        "join_chat",
+        {
+          helpRequestId:
+            request._id,
+        }
+      );
     }
-  );
-}
   } catch (error) {
     console.error(
       "Open chat error:",
@@ -521,26 +500,52 @@ if (socket) {
   }
 };
 
+// =====================================================
+// GET CURRENT USER ID
+// =====================================================
+
 const getCurrentUserId = () => {
   try {
-    const token = localStorage.getItem("token");
+    const token =
+      localStorage.getItem("token");
+
     if (!token) return null;
 
-    const payload = JSON.parse(
-      atob(token.split(".")[1])
+    const payload =
+      JSON.parse(
+        atob(token.split(".")[1])
+      );
+
+    return (
+      payload.id ||
+      payload._id ||
+      payload.userId ||
+      null
+    );
+  } catch (error) {
+    console.error(
+      "Token decode error:",
+      error
     );
 
-    return payload.id || payload._id || payload.userId || null;
-  } catch (error) {
-    console.error("Token decode error:", error);
     return null;
   }
 };
 
-const getSenderId = (message) => {
-  if (!message?.sender) return null;
+// =====================================================
+// GET SENDER ID
+// =====================================================
 
-  if (typeof message.sender === "string") {
+const getSenderId = (
+  message
+) => {
+  if (!message?.sender)
+    return null;
+
+  if (
+    typeof message.sender ===
+    "string"
+  ) {
     return message.sender;
   }
 
@@ -552,44 +557,67 @@ const getSenderId = (message) => {
   );
 };
 
+// =====================================================
+// SEND MESSAGE
+// =====================================================
+
 const sendMessage = () => {
-  const text = messageText.trim();
+  const text =
+    messageText.trim();
 
   if (!text || !activeChat) {
     return;
   }
 
-  const socket = window.helpGridSocket;
+  const socket =
+    window.helpGridSocket;
 
-  if (!socket || !socket.connected) {
-    setChatError("Chat connection is not ready. Please try again.");
+  if (
+    !socket ||
+    !socket.connected
+  ) {
+    setChatError(
+      "Chat connection is not ready. Please try again."
+    );
+
     return;
   }
 
-  const currentUserId = getCurrentUserId();
+  const currentUserId =
+    getCurrentUserId();
 
-  // Show our own message immediately.
-  // The server/socket may only broadcast the message to the other user.
   const optimisticMessage = {
     _id: `local-${Date.now()}-${Math.random()}`,
-    sender: currentUserId,
+    sender:
+      currentUserId,
     message: text,
-    createdAt: new Date().toISOString(),
+    createdAt:
+      new Date().toISOString(),
     optimistic: true,
   };
 
-  setMessages((previous) => [
-    ...previous,
-    optimisticMessage,
-  ]);
+  setMessages(
+    (previous) => [
+      ...previous,
+      optimisticMessage,
+    ]
+  );
 
-  socket.emit("send_message", {
-    helpRequestId: activeChat._id,
-    message: text,
-  });
+  socket.emit(
+    "send_message",
+    {
+      helpRequestId:
+        activeChat._id,
+      message: text,
+    }
+  );
 
   setMessageText("");
 };
+
+// =====================================================
+// CHAT SOCKET
+// =====================================================
 
 useEffect(() => {
   const token =
@@ -600,9 +628,10 @@ useEffect(() => {
   }
 
   const socket =
-    io("http://localhost:5000");
+    io(API_URL);
 
-  window.helpGridSocket = socket;
+  window.helpGridSocket =
+    socket;
 
   socket.on(
     "connect",
@@ -617,23 +646,12 @@ useEffect(() => {
   socket.on(
     "receive_message",
     (message) => {
-      const currentUserId = getCurrentUserId();
-      const senderId = getSenderId(message);
-
-      // We already add our own message optimistically above.
-      // Do not add the same outgoing message twice if the server echoes it.
-      if (
-        currentUserId &&
-        senderId &&
-        String(currentUserId) === String(senderId)
-      ) {
-        return;
-      }
-
-      setMessages((previous) => [
-        ...previous,
-        message,
-      ]);
+      setMessages(
+        (previous) => [
+          ...previous,
+          message,
+        ]
+      );
     }
   );
 
@@ -642,21 +660,28 @@ useEffect(() => {
     (error) => {
       console.error(
         "Chat error:",
-        error.message
+        error
       );
 
       setChatError(
-        error.message
+        error?.message ||
+          "Unable to send message."
       );
     }
   );
 
   return () => {
     socket.disconnect();
-    window.helpGridSocket = null;
+
+    if (
+      window.helpGridSocket ===
+      socket
+    ) {
+      window.helpGridSocket =
+        null;
+    }
   };
 }, []);
-
   // =====================================================
   // INITIAL LOAD + AUTO REFRESH
   // =====================================================
@@ -870,8 +895,7 @@ useEffect(() => {
           <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-[0_8px_0_#e5e5e5] sm:p-7">
 
             <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
-
-              <div>
+               <div>
                 <p className="mb-1 text-xs font-bold uppercase tracking-[0.2em] text-gray-400">
                   Local Network
                 </p>
@@ -1765,6 +1789,6 @@ useEffect(() => {
 
     </div>
   );
-}
 
+}
 export default NGODashboard;

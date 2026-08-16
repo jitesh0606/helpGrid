@@ -25,7 +25,7 @@ function AdminDashboard() {
       }
 
       const response = await fetch(
-        "http://localhost:5000/api/admin/ngos/pending",
+  `${API_URL}/api/admin/ngos/pending`,
         {
           method: "GET",
           headers: {
@@ -64,7 +64,7 @@ function AdminDashboard() {
       const token = localStorage.getItem("token");
 
       const response = await fetch(
-        `http://localhost:5000/api/admin/ngos/${ngoId}/verify`,
+  `${API_URL}/api/admin/ngos/${ngoId}/verify`,
         {
           method: "PATCH",
           headers: {
@@ -119,7 +119,7 @@ function AdminDashboard() {
       const token = localStorage.getItem("token");
 
       const response = await fetch(
-        `http://localhost:5000/api/admin/ngos/${ngoId}/reject`,
+  `${API_URL}/api/admin/ngos/${ngoId}/reject`,
         {
           method: "PATCH",
           headers: {

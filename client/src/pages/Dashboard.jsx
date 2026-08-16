@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 
+const API_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 function Dashboard() {
   // =====================================================
   // STATE
@@ -183,7 +186,7 @@ function Dashboard() {
 
       const response =
         await fetch(
-          "http://localhost:5000/api/requests",
+          `${API_URL}/api/requests`,
           {
             method: "POST",
 
@@ -281,7 +284,7 @@ function Dashboard() {
 
       const response =
         await fetch(
-          "http://localhost:5000/api/requests/my",
+          `${API_URL}/api/requests/my`,
           {
             headers: {
               Authorization:
@@ -337,7 +340,7 @@ function Dashboard() {
 
         const response =
           await fetch(
-            "http://localhost:5000/api/notifications",
+            `${API_URL}/api/notifications`,
             {
               headers: {
                 Authorization:
@@ -388,7 +391,7 @@ function Dashboard() {
 
       const response =
         await fetch(
-          `http://localhost:5000/api/notifications/${notificationId}/read`,
+          `${API_URL}/api/notifications/${notificationId}/read`,
           {
             method: "PATCH",
 
@@ -503,12 +506,13 @@ function Dashboard() {
       }
 
       const response = await fetch(
-        `http://localhost:5000/api/chat/${request._id}`,
+        `${API_URL}/api/chat/${request._id}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
           },
         }
+      
       );
 
       const data = await response.json();
@@ -601,7 +605,7 @@ function Dashboard() {
       return;
     }
 
-    const socket = io("http://localhost:5000");
+    const socket = io(API_URL);
 
     window.helpGridSocket = socket;
 
@@ -689,7 +693,7 @@ function Dashboard() {
 
       const response =
         await fetch(
-          `http://localhost:5000/api/requests/${requestId}/cancel`,
+          `${API_URL}/api/requests/${requestId}/cancel`,
           {
             method: "PATCH",
 
@@ -1908,5 +1912,4 @@ function Dashboard() {
     </div>
   );
 }
-
 export default Dashboard;
