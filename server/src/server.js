@@ -20,6 +20,14 @@ dotenv.config();
 
 const app = express();
 
+
+app.get("/", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "HelpGrid Backend is running 🚀",
+  });
+});
+
 // =====================================================
 // HTTP SERVER
 // =====================================================
